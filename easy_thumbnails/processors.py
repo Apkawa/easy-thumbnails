@@ -119,7 +119,7 @@ def autocrop(im, autocrop=False, **kwargs):
     return im
 
 
-def scale_and_crop(im, size, crop=False, upscale=False, zoom=None, target=None,
+def scale_and_crop(im, size=None, crop=False, upscale=False, zoom=None, target=None,
                    **kwargs):
     """
     Handle scaling and cropping the source image.
@@ -178,6 +178,10 @@ def scale_and_crop(im, size, crop=False, upscale=False, zoom=None, target=None,
         A null value such as ``(20, None)`` or ``",60"`` will default to 50%.
     """
     source_x, source_y = [float(v) for v in im.size]
+
+    if not size:
+        size = im.size
+
     target_x, target_y = [int(v) for v in size]
 
     if crop or not target_x or not target_y:

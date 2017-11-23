@@ -1,3 +1,5 @@
+from PIL import Image
+
 import os
 from django.utils import six
 
@@ -151,6 +153,7 @@ class ThumbnailFile(ImageFieldFile):
     This can be used just like a Django model instance's property for a file
     field (i.e. an ``ImageFieldFile`` object).
     """
+
     def __init__(self, name, file=None, storage=None, thumbnail_options=None,
                  *args, **kwargs):
         fake_field = FakeField(storage=storage)
@@ -365,21 +368,23 @@ class Thumbnailer(File):
         dictionary.
         """
         thumbnail_options = self.get_options(thumbnail_options)
-        orig_size = thumbnail_options['size']  # remember original size
-        # Size sanity check.
-        min_dim, max_dim = 0, 0
-        for dim in orig_size:
-            try:
-                dim = int(dim)
-            except (TypeError, ValueError):
-                continue
-            min_dim, max_dim = min(min_dim, dim), max(max_dim, dim)
-        if max_dim == 0 or min_dim < 0:
-            raise exceptions.EasyThumbnailsError(
-                "The source image is an invalid size (%sx%s)" % orig_size)
+        orig_size = thumbnail_options.get('size')  # remember original size
+        if orig_size:
+            # Size sanity check.
+            min_dim, max_dim = 0, 0
+            for dim in orig_size:
+                try:
+                    dim = int(dim)
+                except (TypeError, ValueError):
+                    continue
+                min_dim, max_dim = min(min_dim, dim), max(max_dim, dim)
+            if max_dim == 0 or min_dim < 0:
+                raise exceptions.EasyThumbnailsError(
+                    "The source image is an invalid size (%sx%s)" % orig_size)
 
-        if high_resolution:
-            thumbnail_options['size'] = (orig_size[0] * 2, orig_size[1] * 2)
+            if high_resolution:
+                thumbnail_options['size'] = (orig_size[0] * 2, orig_size[1] * 2)
+
         image = engine.generate_source_image(
             self, thumbnail_options, self.source_generators,
             fail_silently=silent_template_exception)
@@ -388,7 +393,7 @@ class Thumbnailer(File):
                 "The source file does not appear to be an image")
 
         thumbnail_image = engine.process_image(image, thumbnail_options,
-                                               self.thumbnail_processors)
+            self.thumbnail_processors)
         if high_resolution:
             thumbnail_options['size'] = orig_size  # restore original size
 
@@ -399,9 +404,19 @@ class Thumbnailer(File):
         quality = thumbnail_options['quality']
         subsampling = thumbnail_options['subsampling']
 
-        img = engine.save_image(
-            thumbnail_image, filename=filename, quality=quality,
-            subsampling=subsampling)
+        if isinstance(thumbnail_image, Image.Image):
+            img = engine.save_image(
+                thumbnail_image, filename=filename, quality=quality,
+                subsampling=subsampling)
+        elif hasattr(thumbnail_image, 'read'):
+            if not hasattr(thumbnail_image, 'size'):
+                # Fallback size for stream
+                thumbnail_image.size = image.size
+            img = thumbnail_image
+        else:
+            raise exceptions.InvalidImageFormatError(
+                "The source file does not appear to be an image"
+            )
         data = img.read()
 
         thumbnail = ThumbnailFile(
@@ -419,18 +434,23 @@ class Thumbnailer(File):
         dictionary and ``source_name`` (which defaults to the File's ``name``
         if not provided).
         """
+        option_extension = thumbnail_options.get('extension')
         thumbnail_options = self.get_options(thumbnail_options)
         path, source_filename = os.path.split(self.name)
         source_extension = os.path.splitext(source_filename)[1][1:]
-        preserve_extensions = self.thumbnail_preserve_extensions
-        if preserve_extensions and (
-                preserve_extensions is True or
-                source_extension.lower() in preserve_extensions):
-            extension = source_extension
-        elif transparent:
-            extension = self.thumbnail_transparency_extension
+        if option_extension:
+            # May be custom extension if needed.
+            extension = option_extension
         else:
-            extension = self.thumbnail_extension
+            preserve_extensions = self.thumbnail_preserve_extensions
+            if preserve_extensions and (
+                    preserve_extensions is True or
+                    source_extension.lower() in preserve_extensions):
+                extension = source_extension
+            elif transparent:
+                extension = self.thumbnail_transparency_extension
+            else:
+                extension = self.thumbnail_extension
         extension = extension or 'jpg'
 
         prepared_opts = thumbnail_options.prepared_options()
@@ -654,6 +674,7 @@ class ThumbnailerFieldFile(FieldFile, Thumbnailer):
     A field file which provides some methods for generating (and returning)
     thumbnail images.
     """
+
     def __init__(self, *args, **kwargs):
         super(ThumbnailerFieldFile, self).__init__(*args, **kwargs)
         self.source_storage = self.field.storage
@@ -724,7 +745,7 @@ class ThumbnailerFieldFile(FieldFile, Thumbnailer):
                 # thumbnail storage.
                 if thumbnail_cache.storage_hash == thumbnail_storage_hash:
                     yield ThumbnailFile(name=thumbnail_cache.name,
-                                        storage=self.thumbnail_storage)
+                        storage=self.thumbnail_storage)
 
     def __getstate__(self):
         state = super(ThumbnailerFieldFile, self).__getstate__()
@@ -766,4 +787,4 @@ class ThumbnailerImageFieldFile(ImageFieldFile, ThumbnailerFieldFile):
             if generated_ext.lower() != ext.lower():
                 name = orig_name + generated_ext
         super(ThumbnailerImageFieldFile, self).save(name, content, *args,
-                                                    **kwargs)
+            **kwargs)

@@ -17,7 +17,13 @@ class ThumbnailOptions(dict):
         self.setdefault('subsampling', 2)
 
     def prepared_options(self):
-        prepared_opts = ['%sx%s' % tuple(self['size'])]
+        prepared_opts = []
+
+        size = self.get('size')
+        if size and isinstance(size, (list, tuple)):
+            prepared_opts.append('%sx%s' % tuple(size))
+        else:
+            prepared_opts.append('original')
 
         subsampling = six.text_type(self['subsampling'])
         if subsampling == '2':
